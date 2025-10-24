@@ -1,1 +1,432 @@
+Харківський національний університет радіоелектроніки
+Факультет комп’ютерних наук
+Кафедра програмної інженерії
 
+
+
+
+
+
+ЗВІТ
+до практичного заняття №2
+з дисципліни «Аналіз та рефакторинг коду»
+На тему: «Методи рефакторингу коду Extract Function, Replace Conditional with Strategy, Introduce Parameter Object на прикладі Python»
+
+
+
+
+
+
+
+Виконав:                                                       
+ст. гр. ПЗПІ-23-8                                                        
+Ярмак Артем Миколайович                                     
+
+
+
+Перевірив:
+ст. викладач кафедри ПІ
+Сокорчук Ігор Петрович
+
+
+
+
+
+
+
+
+
+Харкiв 2025
+1 ІСТОРІЯ ЗМІН
+
+
+№
+	Дата
+	Версія звіту
+	Опис змін та виправлень
+	1
+	23.10.2025
+	0.1
+	Створено розділ завдання
+	2
+	24.10.2025
+	0.2
+	Створено розділ “Опис виконаної роботи”
+	________________
+
+
+2 ЗАВДАННЯ
+
+
+1. Вступ
+2. Метод «Extract Function»
+3. Метод «Replace Conditional with Strategy»
+4. Метод «Introduce Parameter Object»
+5. Приклад комплексного рефакторингу
+6. Покрокова демонстрація процесу рефакторингу
+7. Інструменти для рефакторингу коду
+________________
+
+
+3 ОПИС ВИКОНАНОЇ РОБОТИ
+3.1 Вступ
+
+
+У цьому розділі розглянуто сутність поняття рефакторингу як невід’ємної частини процесу розробки програмного забезпечення.
+Рефакторинг — це процес зміни внутрішньої структури коду, який не змінює його зовнішньої поведінки, але суттєво впливає на його якість. Він підвищує зручність читання, зменшує складність та дублювання коду, допомагає уникнути помилок та значно спрощує командну взаємодію між розробниками.
+Робота зроблена на основі трьох ключових методах рефакторингу:
+* Extract Function - декомпозиція великих методів на менші, більш керовані частини.
+* Replace Conditional with Strategy - перетворення складних умовних блоків (if/elif/else) на гнучкий паттерн "Strategy".
+* Introduce Parameter Object - групування пов'язаних параметрів функції в єдиний об'єкт.
+
+
+3.2 Метод «Extract Function»
+
+
+У цьому розділі розглянуто метод Extract Function, який дозволяє покращити читабельність та структуру коду шляхом винесення логічно пов'язаних блоків коду в окремі, чітко названі функції.
+Довгі функції, які виконують декілька завдань одночасно, ускладнюють розуміння та підтримку. Розбиття такої функції на менші частини дозволяє дотримуватися Single Responsibility Principle.
+
+
+Приклад коду до рефакторингу:
+
+
+def process_payment(order):
+    base_price = order['quantity'] * order['item_price']
+
+
+    discount = 0.0
+    if base_price > 1000:
+        discount = base_price * 0.10
+
+
+    print(f"Base Price: {base_price}")
+    print(f"Discount: {discount}")
+    print(f"Total: {(base_price - discount)}")
+
+
+У цьому прикладі функція process_payment перевантажена логікою — вона одночасно розраховує ціну зі знижкою та друкує результат.
+
+
+Після рефакторингу:
+
+
+def calculate_base_price(order):
+    return order['quantity'] * order['item_price']
+
+
+def calculate_discount(base_price):
+    if base_price > 1000:
+        return base_price * 0.10
+    return 0.0
+
+
+def process_payment(order):
+    base_price = calculate_base_price(order)
+    discount = calculate_discount(base_price)
+    total = base_price - discount
+
+
+    print(f"Base Price: {base_price}")
+    print(f"Discount: {discount}")
+    print(f"Total: {total}")
+
+
+Тепер кожна складна частина логіки винесена в окрему функцію. Головна функція process_payment стала набагато чистішою.
+
+
+3.3 Метод «Replace Conditional with Strategy»
+
+
+Цей метод використовується для рефакторингу складних умовних конструкцій (if/elif/else), які вибирають різну поведінку (алгоритм) залежно від типу об'єкта або стану.
+Замість того, щоб додавати нові elif і роздувати функцію, логіка кожного "випадку" інкапсулюється в окремий клас-стратегію. Це відповідає Open/Closed Principle.
+
+
+Приклад коду до рефакторингу:
+
+
+def calculate_payment(amount, payment_method):
+    if payment_method == 'credit_card':
+        return amount * 1.03
+    elif payment_method == 'paypal':
+        return amount * 1.05
+    else:
+        raise ValueError("Unknown payment method")
+
+
+У цьому коді додавання нового методу оплати вимагатиме зміни самої функції calculate_payment.
+
+
+Після рефакторингу:
+
+
+from abc import ABC, abstractmethod
+
+
+class PaymentStrategy(ABC):
+    @abstractmethod
+    def calculate(self, amount): pass
+
+
+class CreditCardStrategy(PaymentStrategy):
+    def calculate(self, amount): return amount * 1.03
+
+
+class PayPalStrategy(PaymentStrategy):
+    def calculate(self, amount): return amount * 1.05
+
+
+STRATEGIES = {
+    'credit_card': CreditCardStrategy(),
+    'paypal': PayPalStrategy(),
+}
+
+
+def calculate_payment(amount, payment_method):
+    if payment_method not in STRATEGIES:
+        raise ValueError("Unknown payment method")
+    strategy = STRATEGIES[payment_method]
+    return strategy.calculate(amount)
+
+
+Тепер, щоб додати новий метод, достатньо створити новий клас-стратегію та додати його до словника STRATEGIES, не чіпаючи функцію calculate_payment.
+
+
+3.4 Метод «Introduce Parameter Object»
+
+
+Цей метод полягає у заміні довгого списку пов'язаних параметрів, що передаються у функцію, на єдиний об'єкт.
+Це вирішує проблему "злипання даних". Якщо ви бачите, що 3-4 параметри завжди передаються разом, їх варто об'єднати.
+
+
+Приклад коду до рефакторингу:
+
+
+def find_users(first_name, last_name):
+    query = "SELECT * FROM users WHERE"
+    filters = []
+
+
+    if first_name:
+        filters.append(f"first_name = '{first_name}'")
+    if last_name:
+        filters.append(f"last_name = '{last_name}'")
+
+
+    if filters:
+        query += " AND ".join(filters)
+   
+    print(f"Executing query: {query}")
+
+
+find_users("John", "Smith")
+
+
+Параметри first_name та last_name логічно представляють єдину сутність — "фільтр".
+
+
+Після рефакторингу:
+
+
+from dataclasses import dataclass
+
+
+@dataclass
+class UserSearchFilters:
+    first_name: str | None = None
+    last_name: str | None = None
+
+
+def find_users(filters: UserSearchFilters):
+    query = "SELECT * FROM users WHERE"
+    query_filters = []
+
+
+    if filters.first_name:
+        query_filters.append(f"first_name = '{filters.first_name}'")
+    if filters.last_name:
+        query_filters.append(f"last_name = '{filters.last_name}'")
+
+
+    if query_filters:
+        query += " AND ".join(query_filters)
+
+
+    print(f"Executing query: {query}")
+
+
+filters = UserSearchFilters(first_name="John", last_name="Smith")
+find_users(filters)
+
+
+Тепер функція приймає лише один параметр. Об'єкт UserSearchFilters можна легко передавати в інші функції як єдине ціле.
+
+
+
+
+3.5 Приклад комплексного рефакторингу
+
+
+У цьому прикладі продемонстровано комбіноване застосування методів Extract Function та Introduce Parameter Object.
+
+
+Оригінальний код:
+
+
+def register_user(username, password, password_confirm, email):
+   
+    if password != password_confirm:
+        print("Error: Passwords do not match")
+        return False
+   
+    if "@" not in email:
+        print("Error: Invalid email")
+        return False
+
+
+    user = {
+        'username': username,
+        'email': email,
+    }
+    print(f"User {username} created in database.")
+   
+    return True
+
+
+Код має проблеми: функція задовга, має 4 параметри, і змішує логіку валідації з логікою створення.
+
+
+Після рефакторингу:
+
+
+from dataclasses import dataclass
+
+
+@dataclass
+class UserRegistrationData:
+    username: str
+    email: str
+
+
+def _validate_user(data: UserRegistrationData, password, password_confirm):
+    if password != password_confirm:
+        raise ValueError("Passwords do not match")
+    if "@" not in data.email:
+        raise ValueError("Invalid email")
+
+
+def _create_user(data: UserRegistrationData):
+    user = {
+        'username': data.username,
+        'email': data.email,
+    }
+    print(f"User {data.username} created in database.")
+    return user
+
+
+def register_user(data: UserRegistrationData, password, password_confirm):
+    try:
+        _validate_user(data, password, password_confirm)
+        user = _create_user(data)
+        return True
+    except ValueError as e:
+        print(f"Error: {e}")
+        return False
+
+
+Тут використано одразу два підходи:
+* Introduce Parameter Object - параметри username та email об'єднані в dataclass UserRegistrationData.
+* Extract Function - логіка валідації (_validate_user) та логіка створення (_create_user) винесені в окремі функції.
+Такий підхід зробив код чистим, розділеним за відповідальністю та легким для тестування.
+
+
+3.6 Покрокова демонстрація процесу рефакторингу
+
+
+У цьому розділі описано логічну послідовність виконання рефакторингу:
+* Визначення проблемної ділянки коду (наприклад, занадто довга функція, великий блок if, дублювання).
+* Вибір найбільш доречного методу рефакторингу (наприклад, якщо функція довга — Extract Function, якщо багато параметрів — Introduce Parameter Object).
+* Аналіз впливу змін на загальну логіку програми (переконатися, що рефакторинг не зламає існуючу поведінку).
+* Внесення змін.
+* Повторне тестування для перевірки коректності виконаних змін.
+Такий підхід до рефакторингу дозволяє виконати його безпечно без ризику порушення функціоналу коду.
+
+
+3.7 Інструменти для рефакторингу коду
+
+
+Для більш ефективного виконання рефакторингу в Python використовуються програмні інструменти:
+* PyCharm - потужна IDE, яка має вбудовані автоматичні інструменти: "Rename", "Extract Method", "Introduce Parameter" та інші.
+* Pylint / Flake8 - статичні аналізатори, які не виконують рефакторинг самі, але вказують на помилки, що сигналізує про необхідність рефакторингу.
+* SonarQube - платформа для безперервного аналізу якості коду, яка виявляє дублювання логіки, надмірну складність та вразливості, допомагаючи визначити пріоритети для рефакторингу.
+При використанні цих інструментів процес рефакторингу стане набагато швидшим та матиме менший ризик помилки.
+________________
+4 ВИСНОВКИ
+
+
+У ході виконання практичної роботи було проведено поглиблений розгляд ключових технік рефакторингу, та їх практичне впровадження.
+Основну увагу було приділено аналізу трьох методів: Extract Function, Replace Conditional with Strategy та Introduce Parameter Object. Було встановлено, що ці підходи сприяють підвищенню логічної структурованості коду, його гнучкості до майбутніх змін та загальній придатності до розширення.
+З використанням прикладів коду на Python було наочно показано, як застосування цих технік дозволяє усунути надмірну складність, оптимізувати умовні конструкції та покращити загальну читабельність. Акцент робився на процесі ідентифікації проблемних ділянок та безпечному внесенні змін із подальшою перевіркою збереження вихідної функціональності.
+Додатково було вивчено допоміжні інструменти, що є невід'ємною частиною екосистеми Python, зокрема можливості середовища розробки PyCharm, статичного аналізатора Pylint та платформи SonarQube, які суттєво автоматизують процес виявлення та виправлення неефективних фрагментів коду.
+________________
+5 ВИКОРИСТАНІ ДЖЕРЕЛА
+
+
+1. Fowler M. Refactoring: Improving the Design of Existing Code, 2019;
+2. Extract Method [Електронний ресурс] / Refactoring.Guru. URL: https://refactoring.guru/extract-method (дата звернення: 24.10.2025).
+3. Introduce Parameter Object [Електронний ресурс] / Refactoring.Guru. URL: https://refactoring.guru/introduce-parameter-object (дата звернення: 24.10.2025).
+4. Refactoring Python [Електронний ресурс] / JetBrains PyCharm Documentation. URL: https://www.jetbrains.com/help/pycharm/refactoring-source-code.html (дата звернення: 24.10.2025).
+________________
+ДОДАТОК А
+Відеозапис
+Відеозапис доповіді: https://www.youtube.com/watch?v=MFwgTfui9Gw
+Хронологічний опис відеозапису:
+00:00 - 00:13 - Привітання
+00:13 - 00:37 - Вступ
+00:37 - 01:09 - Метод «Extract Function»
+01:09 - 01:36 - Метод «Replace Conditional with Strategy»
+01:36 - 01:58 - Метод «Introduce Parameter Object»
+01:58 - 02:55 - Приклад комплексного рефакторингу
+02:55 - 03:53 - Покрокова демонстрація процесу рефакторингу
+03:53 - 04:50 - Інструменти для рефакторингу коду
+04:50 - 05:32 - Висновки
+05:32 - Використані джерела
+________________
+
+
+ДОДАТОК Б
+Слайди презентації
+
+
+  
+
+Рисунок Б.1 - Титульна сторінка
+  
+
+Рисунок Б.2 - Зміст
+  
+
+Рисунок Б.3 - Вступ
+  
+
+Рисунок Б.4 - Метод «Extract Function»
+  
+
+Рисунок Б.5 - Метод «Replace Conditional with Strategy»
+  
+
+Рисунок Б.6 - Метод «Introduce Parameter Object»
+  
+
+Рисунок Б.7 - Приклад комплексного рефакторингу
+  
+
+Рисунок Б.8 - Покрокова демонстрація процесу рефакторингу
+  
+
+Рисунок Б.9 - Інструменти для рефакторингу коду
+  
+
+Рисунок Б.10 - Висновки
+  
+
+Рисунок Б.11 - Використані джерела
