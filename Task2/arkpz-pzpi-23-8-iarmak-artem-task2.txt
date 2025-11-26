@@ -1,0 +1,615 @@
+Міністерство освіти і науки України
+Харківський національний університет радіоелектроніки
+
+
+
+
+
+
+
+Кафедра «Програмної інженерії»
+
+
+
+
+
+
+Дисципліна «Аналіз та рефакторинг коду»
+Лабораторна робота №2
+«РОЗРОБКА БАЗИ ДАНИХ ДЛЯ СЕРВЕРНОЇ ЧАСТИНИ ПРОГРАМНОЇ СИСТЕМИ ТА ПРИКЛАДНОГО ПРОГРАМНОГО ІНТЕРФЕЙСУ (API)»
+
+
+
+
+
+
+Виконав:                                                                          
+ст. гр. ПЗПІ-23-8                                                                
+Ярмак А.М.                                                                        
+
+
+
+Прийняв:
+Дашенков Д.С.
+
+
+
+Харків 2025
+________________
+        Мета роботи:
+        Розробити базу даних для серверної частини програмної системи та прикладного програмного інтерфейсу. 
+Тема роботи: 
+Програмна система для контролю роботи співробітників служби доставки їжі.
+Посилання на відеозапис: https://www.youtube.com/watch?v=wfYGKhteDo4
+
+
+Хід роботи
+
+
+1. Розробити будову програмної системи
+1.1 Архітектурні рішення
+Програмна система контролю роботи кур'єрів базується на трирівневій архітектурі, яка забезпечує чіткий розподіл функціональних обов'язків між клієнтськими інтерфейсами, сервером бізнес-логіки та сховищем даних.
+1.1.1 Серверна частина (Back-end)
+Серверна частина виступає центральним вузлом системи, який обробляє всі запити та керує логістичними процесами.
+* Технологічний стек: Node.js та фреймворк Express.js.
+* Тип архітектури: API-орієнтований сервіс з елементами Real-time.
+* Ключові функції:
+   * API Gateway: Прийом та обробка HTTP-запитів від веб- та мобільних клієнтів.
+   * Обробка GPS-даних: Використання технології WebSockets для отримання координат від кур'єрів у реальному часі без затримок.
+   * Модуль маршрутизації: Розрахунок оптимальних маршрутів та валідація вхідних даних перед збереженням.
+1.1.2 Клієнтські взаємодії
+Система має два типи клієнтських додатків, адаптованих під різні ролі користувачів:
+* Веб-клієнт (Адміністративна панель):
+   * Технологія: React.
+   * Призначення: Забезпечує візуалізацію місцезнаходження кур'єрів на карті, управління обліковими записами та призначення замовлень. Взаємодіє із сервером через AJAX-запити для даних та WebSocket для оновлення карти.
+* Мобільний клієнт (Додаток Кур'єра / IoT-клієнт):
+   * Технологія: React Native.
+   * Призначення: Працює як "розумний пристрій" (Smart Device), що збирає геолокаційні дані у фоновому режимі та передає їх на сервер. Також відображає кур'єру призначений маршрут та дозволяє змінювати статус замовлення.
+1.1.3 База даних (Database)
+* Технологія: MariaDB.
+* Призначення: Використовується реляційна модель для забезпечення надійного зберігання структурованих даних та історії переміщень.
+1.2 Опис моделей даних та зв'язків
+        Для зберігання даних використовується реляційна модель. Нижче наведено опис основних сутностей та зв'язків між ними.
+        Моделі:
+        1.2.1 Користувачі (Users) Базова таблиця для зберігання облікових даних всіх учасників системи.
+* id (PK, INT) — Унікальний ідентифікатор користувача.
+* login (VARCHAR) — Логін для входу.
+* password_hash (VARCHAR) — Захешований пароль.
+* role (ENUM) — Роль користувача в системі ('admin', 'courier').
+1.2.2 Кур'єри (Couriers) Таблиця містить профільну інформацію про співробітників доставки.
+* user_id (PK, FK, INT) — Ідентифікатор кур'єра, який збігається з його ID у таблиці Users.
+* full_name (VARCHAR) — ПІБ співробітника.
+* phone (VARCHAR) — Контактний телефон.
+* status (ENUM) — Поточний робочий статус ('active', 'busy', 'offline').
+1.2.3. Замовлення (Orders) Зберігає інформацію про замовлення.
+* id (PK, INT) — Унікальний номер замовлення.
+* courier_id (FK, INT) — Посилання на кур'єра (може бути NULL, якщо замовлення ще не призначене).
+* client_address (VARCHAR) — Текстова адреса доставки.
+* delivery_coords (JSON) — Координати точки доставки для відображення на карті.
+* status (ENUM) — Статус виконання ('new', 'in_progress', 'completed').
+* created_at (DATETIME) — Час створення замовлення.
+1.2.4. Маршрути (Routes) Зберігає планову геометрію шляху, розраховану системою.
+* id (PK, INT) — Ідентифікатор маршруту.
+* order_id (FK, INT) — Посилання на відповідне замовлення.
+* path_geometry (JSON) — Масив координат точок маршруту (використовується для малювання лінії маршруту на карті).
+* estimated_time (INT) — Розрахунковий час доставки у хвилинах.
+1.2.5. Історія переміщень (Location_Logs) Архівна таблиця для зберігання фактичного маршруту кур'єра.
+* id (PK, BIGINT) — Унікальний ідентифікатор запису.
+* courier_id (FK, INT) — Посилання на кур'єра.
+* coordinates (JSON) — Координати {lat, lon} у момент фіксації.
+* timestamp (DATETIME) — Точний час запису.
+Система використовує наступні зв'язки для забезпечення цілісності даних:
+* Users — Couriers (1:1): Кожен запис кур'єра жорстко прив'язаний до одного облікового запису користувача. Це дозволяє використовувати єдиний ID для авторизації та профілю.
+* Couriers — Orders (1:N): Один кур'єр може виконувати багато замовлень, але конкретне замовлення призначається лише одному кур'єру.
+* Couriers — Routes (1:N): Кур'єр може мати історію з багатьох призначених йому маршрутів.
+* Couriers — Location_Logs (1:N): Один кур'єр генерує велику кількість записів геолокації протягом робочої зміни.
+
+
+2. Створити UML діаграму прецедентів для серверної частини системи.
+2.1 Актори (Actors)
+У системі визначено два основних типи користувачів:
+1. Адміністратор (Administrator): Відповідає за управління системою, користувачами, створення замовлень та глобальний моніторинг.
+2. Кур'єр (Courier): Користувач, який виконує доставку, отримує маршрути та передає дані про своє місцезнаходження.
+2.2 Опис прецедентів (Use Cases)
+Для Адміністратора:
+* Авторизація: Вхід у систему для отримання доступу до захищених функцій.
+* Управління користувачами: Створення, редагування та видалення облікових записів кур'єрів.
+* Управління замовленнями: Створення нових замовлень та призначення їх кур'єрам.
+* Моніторинг активності: Перегляд місцезнаходження кур'єрів на карті в реальному часі.
+* Перегляд історії: Доступ до архіву виконаних замовлень та маршрутів.
+* Управління даними: Створення резервних копій та експорт/імпорт даних.
+Для Кур'єра:
+* Авторизація: Вхід у мобільний додаток.
+* Отримання маршруту: Завантаження призначеного замовлення та оптимізованого шляху.
+* Зміна статусу замовлення: Фіксація етапів виконання (наприклад, "Взяв", "Доставив").
+* Передача геоданих: Відправка GPS-координат на сервер.
+Нище наведена UML – діаграма (рисунок – 1.1).
+  
+
+Рисунок 1.1 - UML – діаграма
+
+
+3. Створити ER діаграму даних.
+Нище наведена ER – діаграма (рисунок 1.2).
+  
+
+Рисунок 1.2 - ER – діаграма
+
+
+4. Розробити базу даних (БД) програмної системи.
+4.1 Проєктування таблиць БД
+На основі розробленої ER-діаграми створено SQL-скрипт для розгортання структури бази даних у СУБД MariaDB.
+CREATE DATABASE IF NOT EXISTS delivery_db 
+CHARACTER SET utf8mb4 
+COLLATE utf8mb4_unicode_ci;
+USE delivery_db;
+
+
+-- Таблиця користувачів
+CREATE TABLE users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    login VARCHAR(50) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    role ENUM('admin', 'courier') NOT NULL
+);
+
+
+-- Таблиця профілів кур'єрів
+CREATE TABLE couriers (
+    user_id INT PRIMARY KEY,
+    full_name VARCHAR(100) NOT NULL,
+    phone VARCHAR(20) NOT NULL,
+    status ENUM('active', 'busy', 'offline') DEFAULT 'offline',
+    CONSTRAINT fk_courier_user FOREIGN KEY (user_id) 
+        REFERENCES users(id) ON DELETE CASCADE
+);
+
+
+-- Таблиця замовлень
+CREATE TABLE orders (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    courier_id INT NULL,
+    client_address VARCHAR(255) NOT NULL,
+    delivery_coords JSON NOT NULL,
+    status ENUM('new', 'in_progress', 'completed') DEFAULT 'new',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_order_courier FOREIGN KEY (courier_id) 
+        REFERENCES couriers(user_id) ON DELETE SET NULL
+);
+
+
+-- Таблиця маршрутів
+CREATE TABLE routes (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT NOT NULL,
+    path_geometry JSON NOT NULL,
+    estimated_time INT NOT NULL,
+    CONSTRAINT fk_route_order FOREIGN KEY (order_id) 
+        REFERENCES orders(id) ON DELETE CASCADE
+);
+
+
+-- Таблиця логів переміщення
+CREATE TABLE location_logs (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    courier_id INT NOT NULL,
+    coordinates JSON NOT NULL,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_log_courier FOREIGN KEY (courier_id) 
+        REFERENCES couriers(user_id) ON DELETE CASCADE
+);
+
+
+4.2 Схема нормалізації даних
+База даних спроєктована з дотриманням правил нормалізації для усунення надлишковості даних, аномалій при оновленні та забезпечення цілісності.
+4.2.1 Перша нормальна форма (1NF)
+Вимога: Усі атрибути повинні бути атомарними, а таблиці не повинні містити груп, що повторюються. Реалізація в системі:
+* Усі поля містять лише одне значення.
+* Відсутні повторювані групи стовпців.
+* Використання типу даних JSON для координат є допустимим і розглядається як атомарний об'єкт, що не порушує логіку 1NF.
+4.2.2 Друга нормальна форма (2NF)
+Вимога: Таблиця повинна бути в 1NF, і всі неключові атрибути повинні залежати від повного первинного ключа. Реалізація в системі:
+* Усі таблиці системи мають простий первинний ключ.
+* Оскільки первинний ключ складається лише з одного атрибута, часткова залежність неможлива. Будь-який атрибут повністю залежить від унікального ID цього рядка.
+4.2.3 Третя нормальна форма (3NF)
+Вимога: Таблиця повинна бути в 2NF, і неключові атрибути не повинні залежати від інших неключових атрибутів. Реалізація в системі:
+* Розділення Users та Couriers: Ми винесли дані профілю кур'єра в окрему таблицю couriers. Якби ми зберігали full_name кур'єра прямо в таблиці orders, це порушило б 3NF. У поточній схемі таблиця orders містить лише посилання courier_id, а всі дані про кур'єра зберігаються в одному місці - у таблиці couriers.
+* Атрибути замовлення: У таблиці orders статус та адреса залежать виключно від самого замовлення, а не від інших полів.
+
+
+5. Створити діаграму структури БД.
+Нище наведена структура бази даних (рисунок 1.3).
+  
+
+Рисунок 1.3 - Структура бази даних
+6. Розробити функції роботи з БД (ORM або CoRM тощо).
+6.1 Налаштування підключення
+Створено пул з'єднань для оптимізації роботи з БД.
+const mysql = require('mysql2/promise');
+
+
+const pool = mysql.createPool({
+    host: 'localhost',
+    user: 'root',
+    password: '',
+    database: 'delivery_db',
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0
+});
+
+
+module.exports = pool;
+
+
+6.2 Реалізація CRUD-функцій
+6.2.1 Репозиторій Користувачів
+Відповідає за авторизацію та реєстрацію. Метод registerCourier використовує транзакцію для атомарного збереження даних у таблиці users та couriers.
+const db = require('../config/db');
+
+
+class UserRepository {
+    async findByLogin(login) {
+        const sql = `SELECT * FROM users WHERE login = ?`;
+        const [rows] = await db.execute(sql, [login]);
+        return rows[0];
+    }
+
+
+    async findById(id) {
+        const sql = `SELECT * FROM users WHERE id = ?`;
+        const [rows] = await db.execute(sql, [id]);
+        return rows[0];
+    }
+
+
+    async registerCourier(login, passwordHash, fullName, phone) {
+        const connection = await db.getConnection();
+        try {
+            await connection.beginTransaction();
+
+
+            const [userResult] = await connection.execute(
+                `INSERT INTO users (login, password_hash, role) VALUES (?, ?, 'courier')`,
+                [login, passwordHash]
+            );
+            const userId = userResult.insertId;
+
+
+            await connection.execute(
+                `INSERT INTO couriers (user_id, full_name, phone, status) VALUES (?, ?, ?, 'offline')`,
+                [userId, fullName, phone]
+            );
+
+
+            await connection.commit();
+            return userId;
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
+        }
+    }
+}
+
+
+module.exports = new UserRepository();
+
+
+6.2.2 Репозиторій Замовлень (OrderRepository.js)
+Забезпечує створення замовлень, призначення кур'єрів та оновлення статусів. Координати автоматично конвертуються в JSON.
+const db = require('../config/db');
+
+
+class OrderRepository {
+    async create(clientAddress, coords) {
+        const sql = `INSERT INTO orders (client_address, delivery_coords, status) VALUES (?, ?, 'new')`;
+        const [result] = await db.execute(sql, [clientAddress, JSON.stringify(coords)]);
+        return result.insertId;
+    }
+
+
+    async findAll() {
+        const sql = `SELECT * FROM orders ORDER BY created_at DESC`;
+        const [rows] = await db.execute(sql);
+        return rows;
+    }
+
+
+    async findByCourier(courierId) {
+        const sql = `SELECT * FROM orders WHERE courier_id = ? AND status IN ('in_progress', 'new')`;
+        const [rows] = await db.execute(sql, [courierId]);
+        return rows;
+    }
+
+
+    async assignCourier(orderId, courierId) {
+        const sql = `UPDATE orders SET courier_id = ?, status = 'in_progress' WHERE id = ?`;
+        const [result] = await db.execute(sql, [courierId, orderId]);
+        return result.affectedRows > 0;
+    }
+
+
+    async updateStatus(orderId, status) {
+        const sql = `UPDATE orders SET status = ? WHERE id = ?`;
+        const [result] = await db.execute(sql, [status, orderId]);
+        return result.affectedRows > 0;
+    }
+}
+
+
+module.exports = new OrderRepository();
+
+
+6.2.3 Репозиторій Логів
+Відповідає за збереження історії переміщень.
+const db = require('../config/db');
+
+
+class LocationRepository {
+    async addLog(courierId, coords) {
+        const sql = `INSERT INTO location_logs (courier_id, coordinates) VALUES (?, ?)`;
+        const [result] = await db.execute(sql, [courierId, JSON.stringify(coords)]);
+        return result.insertId;
+    }
+
+
+    async getTrackByTime(courierId, startTime, endTime) {
+        const sql = `
+            SELECT coordinates, timestamp 
+            FROM location_logs 
+            WHERE courier_id = ? 
+            AND timestamp BETWEEN ? AND ?
+            ORDER BY timestamp ASC
+        `;
+        const [rows] = await db.execute(sql, [courierId, startTime, endTime]);
+        
+        return rows.map(row => ({
+            timestamp: row.timestamp,
+            coords: row.coordinates
+        }));
+    }
+}
+
+
+module.exports = new LocationRepository();
+
+
+6.2.4 Репозиторій Маршрутів
+Відповідає за збереження планових маршрутів, розрахованих системою.
+const db = require('../config/db');
+
+
+class RouteRepository {
+    async saveRoute(orderId, geometry, estimatedTime) {
+        const sql = `INSERT INTO routes (order_id, path_geometry, estimated_time) VALUES (?, ?, ?)`;
+        const [result] = await db.execute(sql, [orderId, JSON.stringify(geometry), estimatedTime]);
+        return result.insertId;
+    }
+
+
+    async getByOrder(orderId) {
+        const sql = `SELECT * FROM routes WHERE order_id = ?`;
+        const [rows] = await db.execute(sql, [orderId]);
+        return rows[0];
+    }
+}
+
+
+module.exports = new RouteRepository();
+
+
+7. Розробити API (REST або GraphQL, gRPC тощо) для взаємодії серверної частини з клієнтами.
+Для реалізації функціоналу системи контролю роботи кур'єрів ми використаємо REST API, який забезпечує ефективну взаємодію між веб-інтерфейсом, мобільним додатком та сервером. REST API працює з використанням стандартних HTTP-методів: GET для отримання даних, POST для створення нових ресурсів, PUT/PATCH для оновлення існуючих даних і DELETE для їх видалення.
+Усі ендпоінти структуровані за ресурсами, такими як /api/auth для аутентифікації, /api/orders для обробки замовлень, /api/couriers для управління персоналом та /api/location для моніторингу переміщень. Дані передаються у форматі JSON, що є стандартом для REST API, і кожен запит містить усю необхідну інформацію для виконання.
+Аутентифікація
+1. POST /api/auth/login — Вхід у систему (для адміністраторів та кур'єрів).
+2. POST /api/auth/register — Реєстрація нового кур'єра (доступно лише адміністратору).
+3. GET /api/auth/profile — Отримання інформації про поточного авторизованого користувача.
+Замовлення (Orders)
+1. POST /api/orders — Створення нового замовлення (із зазначенням адреси та координат).
+2. GET /api/orders — Отримання списку всіх замовлень (для адміністратора).
+3. GET /api/orders/my — Отримання списку активних замовлень поточного кур'єра.
+4. GET /api/orders/{id} — Отримання детальної інформації про конкретне замовлення.
+5. PATCH /api/orders/{id}/assign — Призначення кур'єра на замовлення.
+6. PATCH /api/orders/{id}/status — Оновлення статусу замовлення.
+Логістика та Трекінг (Location & Routes)
+1. POST /api/location — Відправка поточних GPS-координат кур'єра.
+2. GET /api/location/{courier_id}/history — Отримання історії переміщень кур'єра за певний період.
+3. GET /api/routes/{order_id} — Отримання планового маршруту для конкретного замовлення.
+Кур'єри (Couriers)
+1. GET /api/couriers — Отримання списку всіх кур'єрів.
+2. GET /api/couriers/{id} — Отримання інформації про конкретного кур'єра.
+3. PATCH /api/couriers/status — Зміна робочого статусу кур'єра (наприклад, "Active", "Busy", "Offline").
+4. DELETE /api/couriers/{id} — Видалення облікового запису кур'єра.
+
+
+8. Створити специфікацію розробленого API.
+8.1 Аутентифікація (Auth)
+8.1.1 Вхід у систему
+Використовується для аутентифікації адміністраторів та кур'єрів.
+* Метод: POST
+* URL: /auth/login
+* Тіло запиту:
+
+
+{
+  "login": "courier_ivan",
+  "password": "secret_password"
+}
+
+
+* Відповідь (Response 200 OK):
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": 10,
+    "role": "courier"
+  }
+}
+8.1.2 Реєстрація нового кур'єра
+Доступно лише для адміністраторів. Створює обліковий запис та профіль кур'єра.
+* Метод: POST
+* URL: /auth/register
+* Тіло запиту:
+{
+  "login": "new_courier",
+  "password": "password123",
+  "fullName": "Петренко Петро",
+  "phone": "+380501234567"
+}
+* Відповідь (Response 201 Created):
+{
+  "message": "Courier registered successfully",
+  "userId": 15
+}
+8.1.3 Отримання профілю
+Повертає дані поточного авторизованого користувача.
+* Метод: GET
+* URL: /auth/profile
+* Відповідь (Response 200 OK):
+{
+  "id": 10,
+  "login": "courier_ivan",
+  "role": "courier",
+  "fullName": "Іванов Іван",
+  "phone": "+380501234567",
+  "status": "active"
+}
+
+
+8.2 Замовлення (Orders)
+8.2.1 Створення замовлення
+Адміністратор створює нове замовлення.
+* Метод: POST
+* URL: /orders
+* Тіло запиту:
+{
+  "clientAddress": "м. Харків, вул. Сумська 10",
+  "coords": {
+    "lat": 50.002,
+    "lon": 36.231
+  }
+}
+* Відповідь (Response 201 Created):
+{
+  "id": 101,
+  "status": "new",
+  "message": "Order created successfully"
+}
+8.2.2 Отримання списку всіх замовлень
+Повертає повний список замовлень (для адміністратора).
+* Метод: GET
+* URL: /orders
+* Відповідь (Response 200 OK):
+[
+  {
+    "id": 101,
+    "clientAddress": "м. Харків, вул. Сумська 10",
+    "status": "new",
+    "courierId": null,
+    "createdAt": "2025-11-26T10:00:00Z"
+  }
+]
+8.2.3 Отримання активних замовлень кур'єра
+Повертає замовлення, призначені поточному кур'єру.
+* Метод: GET
+* URL: /orders/my
+* Відповідь (Response 200 OK):
+[
+  {
+    "id": 100,
+    "clientAddress": "м. Харків, пр. Науки 14",
+    "status": "in_progress",
+    "deliveryCoords": { "lat": 50.01, "lon": 36.22 }
+  }
+]
+8.2.4 Отримання детальної інформації
+* Метод: GET
+* URL: /orders/{id}
+* Приклад: /orders/100
+8.2.5 Призначення кур'єра на замовлення
+* Метод: PATCH
+* URL: /orders/{id}/assign
+* Тіло запиту:
+{
+  "courierId": 10
+}
+* Відповідь (Response 200 OK):
+{ "success": true, "status": "in_progress" }
+8.2.6 Оновлення статусу замовлення
+Кур'єр змінює статус (наприклад, після доставки).
+* Метод: PATCH
+* URL: /orders/{id}/status
+* Тіло запиту:
+{
+  "status": "completed"
+}
+
+
+8.3 Логістика та Трекінг (Location & Routes)
+8.3.1 Відправка GPS-координат
+Мобільний додаток відправляє поточну геопозицію . ID кур'єра визначається автоматично з токена.
+* Метод: POST
+* URL: /location
+* Тіло запиту:
+{
+  "lat": 50.0154,
+  "lon": 36.2210
+}
+* Відповідь (Response 200 OK): { "success": true }
+8.3.2 Отримання історії переміщень
+Дозволяє адміністратору побудувати трек руху кур'єра за період.
+* Метод: GET
+* URL: /location/{courier_id}/history
+* Параметри: ?start=TIMESTAMP&end=TIMESTAMP
+* Відповідь (Response 200 OK):
+[
+  { "lat": 50.0154, "lon": 36.2210, "timestamp": "2025-11-26T14:00:01Z" },
+  { "lat": 50.0155, "lon": 36.2212, "timestamp": "2025-11-26T14:00:11Z" }
+]
+8.3.3 Отримання планового маршруту
+Повертає геометрію маршруту для відображення лінії на карті.
+* Метод: GET
+* URL: /routes/{order_id}
+* Відповідь (Response 200 OK):
+{
+  "orderId": 100,
+  "pathGeometry": [[50.01, 36.22], [50.02, 36.23], ...],
+  "estimatedTime": 15
+}
+
+
+8.4 Кур'єри (Couriers)
+8.4.1 Отримання списку кур'єрів
+* Метод: GET
+* URL: /couriers
+* Відповідь (Response 200 OK):
+[
+  {
+    "userId": 10,
+    "fullName": "Петренко Петро",
+    "status": "active"
+  },
+  {
+    "userId": 11,
+    "fullName": "Сидоренко Іван",
+    "status": "busy"
+  }
+]
+8.4.2 Отримання інформації про кур'єра
+* Метод: GET
+* URL: /couriers/{id}
+8.4.3 Зміна робочого статусу кур'єра
+Кур'єр повідомляє систему про свій стан.
+* Метод: PATCH
+* URL: /couriers/status
+* Тіло запиту:
+{
+  "status": "active"
+}
+8.4.4 Видалення кур'єра
+* Метод: DELETE
+* URL: /couriers/{id}
+* Відповідь: 200 OK або 204 No Content.
