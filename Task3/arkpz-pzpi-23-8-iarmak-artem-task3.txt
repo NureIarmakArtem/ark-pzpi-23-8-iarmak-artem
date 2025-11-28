@@ -1,0 +1,322 @@
+Міністерство освіти і науки України
+Харківський національний університет радіоелектроніки
+
+
+
+
+
+
+Кафедра «Програмної інженерії»
+
+
+
+
+
+
+Дисципліна «Аналіз та рефакторинг коду»
+Лабораторна робота №3
+«РОЗРОБКА БІЗНЕС-ЛОГІКИ ТА ФУНКЦІЙ АДМІНІСТРУВАННЯ СЕРВЕРНОЇ ЧАСТИНИ ПРОГРАМНОЇ СИСТЕМИ»
+
+
+
+
+
+
+Виконав:                                                                         
+ст. гр. ПЗПІ-23-8                                                                
+Ярмак А.М.                                                                        
+ 
+
+
+
+Прийняв:
+Дашенков Д.С.
+
+
+
+Харків 2025
+________________
+Мета роботи:
+Ознайомитися з процесом розробки бізнес логіки та функцій адміністрування серверної частини програмної системи. Отримати практичні навички реалізації бізнес логіки, функцій адміністрування, створення UML-діаграм діяльності та взаємодії, а також перевірки (тестування) роботи серверної частини.
+Тема роботи: 
+Програмна система для контролю роботи співробітників служби доставки їжі.
+Посилання на відеозапис: 
+https://www.youtube.com/watch?v=dVKz2_le8VE
+
+
+Хід роботи
+
+
+1. Розробити бізнес логіку серверної частини програмної системи:
+1.1 Алгоритм перевірки доступності кур'єра
+Цей алгоритм забезпечує виконання правила один кур'єр — одне активне замовлення та запобігає призначенню завдань неактивним працівникам.
+Опис алгоритму:
+* Вхідні дані: order_id, courier_id.
+* Крок 1: Валідація замовлення. Система перевіряє, чи замовлення має статус new.
+   * Якщо статус інший, операція блокується.
+* Крок 2: Валідація статусу кур'єра. Система перевіряє статус кур'єра в таблиці couriers.
+   * Якщо статус offline, повертається помилка "Кур'єр не на зміні".
+* Крок 3: Перевірка навантаження. Система шукає в БД замовлення зі статусом in_progress, закріплені за цим кур'єром.
+   * Якщо знайдено активне замовлення, повертається помилка "Кур'єр зайнятий".
+* Результат: Якщо всі перевірки пройдено, замовлення закріплюється за кур'єром.
+1.2 Алгоритм гео-валідації завершення доставки 
+Алгоритм запобігає фіктивному завершенню замовлень, перевіряючи фізичну присутність кур'єра біля точки доставки.
+Опис алгоритму:
+* Вхідні дані: Кур'єр надсилає запит на зміну статусу на completed.
+* Крок 1: Отримання координат. Система отримує поточні координати кур'єра та координати доставки.
+* Крок 2: Розрахунок відстані. Виконується обчислення відстані.
+* Крок 3: Валідація.
+   * Поріг допустимого відхилення встановлено на рівні 500 метрів.
+   * Якщо відстань перевищує поріг, дія блокується.
+* Результат: Статус змінюється тільки за умови знаходження кур'єра в зоні доставки.
+1.3 Алгоритм розрахунку оптимального маршруту
+Автоматизує логістику, інтегруючись із зовнішніми навігаційними сервісами.
+* Вхідні дані: Успішне створення замовлення.
+* Крок 1: Формування запиту до OSRM API (Point A: Ресторан - Point B: Клієнт).
+* Крок 2: Отримання геометрії та розрахункового часу.
+* Результат: Запис JSON-геометрії в таблицю routes для подальшої передачі кур'єру.
+
+
+2. Розробити функції адміністрування серверної частини програмної системи:
+2.1 Алгоритм розмежування доступу
+Фільтрує всі вхідні запити.
+* Вхідні дані: HTTP-запит із заголовком Authorization.
+* Процес:
+   * Система перевіряє валідність JWT-токена.
+   * З токена витягується роль користувача (admin або courier).
+   * Роль звіряється з правами доступу конкретного ендпоінту.
+* Результат: Передача запиту далі до контролера або повернення помилки 403 Forbidden.
+2.2 Алгоритм моніторингу метрик системи 
+Надає зведену статистику в реальному часі.
+* Вхідні дані: Запит адміністратора на отримання статистики.
+* Процес:
+   * Виконуються паралельні SQL-запити COUNT() до таблиць users та couriers.
+   * Виконується підрахунок замовлень за статусами.
+   * Дані агрегуються в єдиний об'єкт стану.
+* Результат: JSON-об'єкт із ключовими показниками ефективності системи.
+2.3 Алгоритм управління обліковими записами
+Забезпечує життєвий цикл акаунтів користувачів.
+* Вхідні дані: Тип операції та ID користувача.
+* Процес:
+   * Реєстрація: Виконується атомарна транзакція: запис логіну/паролю в users та профілю в couriers.
+   * Видалення: Система перевіряє, чи не виконує кур'єр замовлення прямо зараз. Якщо ні — виконується видалення з таблиці users.
+* Результат: Новий користувач, або повне видалення даних із системи.
+2.4 Алгоритм експорту
+Забезпечує можливість вивантаження ключових даних системи у зручному форматі (CSV) для подальшої обробки в Excel.
+Опис алгоритму:
+* Вхідні дані: Тип сутності для експорту.
+* Процес: Визначення джерела.
+   * Якщо запитано "Кур'єри": виконується вибірка всіх співробітників з їхніми контактами та поточним статусом.
+   * Якщо запитано "Історія доставок": виконується вибірка всіх виконаних замовлень із зазначенням часу, адреси та відповідального кур'єра.
+* Результат: Генерація файлу export_data.csv та передача його адміністратору.
+2.5 Алгоритм резервного копіювання
+Забезпечує надійність зберігання даних.
+* Вхідні дані: Команда адміністратора або розклад планувальника задач.
+* Процес:
+   * Система ініціює процедуру дампу бази даних.
+   * Дані серіалізуються у формат SQL-скрипта або JSON-архіву.
+* Результат: Файл резервної копії, збережений у захищеній директорії сервера.
+
+
+3. Створити програмну реалізацію бізнес логіки та функцій адміністрування серверної частини:
+3.1 Реалізація бізнес-логіки
+3.1.1 Реалізація алгоритму перевірки доступності кур'єра
+Забезпечує виконання правила "Один кур'єр — одне активне замовлення".
+assign = async (req, res) => {
+        try {
+            const orderId = req.params.id;
+            const { courierId } = req.body;
+
+
+            const order = await orderRepo.findById(orderId);
+            if (!order || order.status !== 'new') return res.status(400).json({ message: "Замовлення не доступне" });
+
+
+            const [c] = await db.execute('SELECT status FROM couriers WHERE user_id = ?', [courierId]);
+            if (!c[0]) return res.status(404).json({ message: "Кур'єр не знайдений" });
+            if (c[0].status === 'offline') return res.status(400).json({ message: "Кур'єр Offline" });
+
+
+            const active = await orderRepo.countActiveOrders(courierId);
+            if (active >= 1) return res.status(400).json({ error: "BUSY", message: "Кур'єр вже має активне замовлення" });
+
+
+            await orderRepo.assignCourier(orderId, courierId);
+            res.json({ success: true, message: "Кур'єр призначений" });
+        } catch (e) { res.status(500).json({ error: e.message }); }
+    }
+3.1.2 Реалізація алгоритму гео-валідації завершення доставки
+Запобігає фіктивному завершенню замовлень, порівнюючи координати.
+updateStatus = async (req, res) => {
+        try {
+            const orderId = req.params.id;
+            const { status, courierLat, courierLon } = req.body;
+
+
+            if (status === 'completed') {
+                const order = await orderRepo.findById(orderId);
+                if (!courierLat) return res.status(400).json({ error: "NO_GPS" });
+                
+                let dest = order.delivery_coords;
+                if (typeof dest === 'string') dest = JSON.parse(dest);
+                const dist = this._getDist(courierLat, courierLon, dest.lat, dest.lon);
+                
+                if (dist > 500) return res.status(400).json({ error: "TOO_FAR", message: `Далеко (${Math.round(dist)}m)` });
+            }
+
+
+            await orderRepo.updateStatus(orderId, status);
+            res.json({ success: true, status });
+        } catch (e) { res.status(500).json({ error: e.message }); }
+    }
+
+
+3.1.3 Реалізація алгоритму автоматичного розрахунку маршруту
+Інтеграція з навігаційним сервісом OSRM для отримання геометрії шляху.
+async getByOrder(req, res) {
+    // ...
+    // Формування запиту до OSRM API
+    const url = `http://router.project-osrm.org/route/v1/driving/${START.lon},${START.lat};${dest.lon},${dest.lat}?overview=full&geometries=geojson`;
+    
+    const apiRes = await fetch(url);
+    const data = await apiRes.json();
+
+
+    const geometry = data.routes[0].geometry;
+    const time = Math.round(data.routes[0].duration / 60);
+    
+    await routeRepo.saveRoute(orderId, geometry, time);
+    res.json({ pathGeometry: geometry, estimatedTime: time });
+}
+
+
+3.2 Реалізація функцій адміністрування 
+3.2.1 Реалізація алгоритму розмежування доступу
+Middleware для захисту маршрутів на основі ролей та JWT.
+const authMiddleware = (allowedRoles) => {
+    return (req, res, next) => {
+        if (req.method === "OPTIONS") next();
+
+
+        try {
+            const tokenHeader = req.headers.authorization;
+            if (!tokenHeader) {
+                return res.status(401).json({ message: "Немає токена (Unauthorized)" });
+            }
+
+
+            const token = tokenHeader.split(' ')[1];
+            if (!token) {
+                return res.status(401).json({ message: "Невірний формат токена" });
+            }
+
+
+            const decodedData = jwt.verify(token, SECRET_KEY);
+            req.user = decodedData;
+
+
+            if (decodedData.role === 'admin') {
+                return next();
+            }
+            if (!allowedRoles.includes(decodedData.role)) {
+                return res.status(403).json({ message: "Доступ заборонено (Forbidden)" });
+            }
+
+
+            next();
+        } catch (e) {
+            console.log(e);
+            return res.status(403).json({ message: "Токен недійсний" });
+        }
+    };
+};
+3.2.2 Реалізація моніторингу метрик системи 
+Агрегація статистики для дашборду адміністратора.
+async getSystemStats(req, res) {
+        try {
+            const [c] = await db.execute('SELECT COUNT(*) as cnt FROM couriers');
+            const [a] = await db.execute("SELECT COUNT(*) as cnt FROM orders WHERE status = 'in_progress'");
+            const [comp] = await db.execute("SELECT COUNT(*) as cnt FROM orders WHERE status = 'completed'");
+            res.json({ couriers: c[0].cnt, activeOrders: a[0].cnt, completed: comp[0].cnt });
+        } catch (e) { res.status(500).json({ error: e.message }); }
+    }
+3.2.3 Реалізація управління обліковими записами
+async delete(req, res) {
+        try {
+            const [active] = await db.execute("SELECT * FROM orders WHERE courier_id = ? AND status = 'in_progress'", [req.params.id]);
+            if (active.length > 0) return res.status(400).json({ message: "Видалення неможливе: Активні замовлення!" });
+            await db.execute('DELETE FROM users WHERE id = ?', [req.params.id]);
+            res.json({ success: true });
+        } catch (e) { res.status(500).json({ error: e.message }); }
+    }
+3.2.4 Реалізація експорту даних 
+Генерація CSV файлу для звітності.
+exportData = async (req, res) => {
+        // ... вибірка даних з БД ...
+            const [rows] = await db.execute(sql);
+
+
+            let csvContent = headers;
+            rows.forEach(row => {
+                const values = Object.values(row).map(val => {
+                    let safeVal = val ? val.toString().replace(/(\r\n|\n|\r)/gm, " ") : "";
+                    return `"${safeVal.replace(/"/g, '""')}"`;
+                });
+                csvContent += values.join(';') + '\n';
+            });
+
+
+            const fileName = `export_${filePrefix}_${Date.now()}.csv`;
+            const dir = path.join(__dirname, '../../exports');
+            
+            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+            
+            const filePath = path.join(dir, fileName);
+
+
+            const BOM = '\uFEFF'; 
+            fs.writeFileSync(filePath, BOM + csvContent); 
+
+
+            console.log(`Файл збережено: ${filePath}`);
+            res.download(filePath, fileName);
+
+
+        } catch (e) { res.status(500).json({ error: e.message }); }
+    }
+3.2.5 Реалізація резервного копіювання
+Створення повного JSON-дампу бази даних.
+async createBackup(req, res) {
+        try {
+            const [users] = await db.execute('SELECT * FROM users');
+            const [couriers] = await db.execute('SELECT * FROM couriers');
+            const [orders] = await db.execute('SELECT * FROM orders');
+            const [routes] = await db.execute('SELECT * FROM routes');
+            const [logs] = await db.execute('SELECT * FROM location_logs');
+            
+            const backupData = {
+                timestamp: new Date(),
+                data: { users, couriers, orders, routes, location_logs: logs }
+            };
+
+
+            const fileName = `full_backup_${Date.now()}.json`;
+            const dir = path.join(__dirname, '../../backups');
+            
+            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+
+            fs.writeFileSync(path.join(dir, fileName), JSON.stringify(backupData, null, 2));
+
+
+            res.json({ message: "Бекап створено", file: fileName });
+        } catch (e) { res.status(500).json({ error: e.message }); }
+    }
+
+
+  
+
+Рисунок 1.1 - UML діаграма діяльності виконання замовлення
+  
+
+Рисунок 1.2 - UML діаграма взаємодії завершення замовлення
