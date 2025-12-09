@@ -1,0 +1,262 @@
+Міністерство освіти і науки України
+Харківський національний університет радіоелектроніки
+
+
+
+
+
+
+Кафедра «Програмної інженерії»
+
+
+
+
+
+
+Дисципліна «Аналіз та рефакторинг коду»
+Лабораторна робота №4
+«РОЗРОБКА IoT КЛІЄНТА»
+
+
+
+
+
+
+Виконав:                                                                          
+ст. гр. ПЗПІ-23-8                                                                
+Ярмак А.М.                                                                        
+
+
+
+
+Прийняв:
+Дашенков Д.C.
+
+
+
+
+
+
+Харків 2025
+________________
+Мета роботи:
+Отримати практичні навички з розробки IoT клієнта, включаючи проектування його архітектури, бізнес логіки, налаштувань, та інтеграцію з серверною частиною. Навчитися використовувати UML для створення діаграм прецедентів та діяльності, а також перевіряти функціональність IoT клієнта через тестування та інтеграцію.
+Тема роботи: 
+Програмна система для контролю роботи співробітників служби доставки їжі.
+Посилання на відеозапис: 
+https://www.youtube.com/watch?v=Ybl501_neIw
+
+
+Хід роботи
+
+
+1. Розробити будову програмного забезпечення IoT клієнта:
+1.1 Архітектура IoT клієнта
+IoT клієнт розроблено на базі мікроконтролера ESP32 з використанням фреймворку Arduino. Пристрій функціонує як вбудована система, що забезпечує збір телеметричних даних та їх передачу на сервер через бездротову мережу Wi-Fi.
+Архітектура програмного забезпечення побудована за модульним принципом і включає:
+* Hardware Layer: Забезпечує взаємодію з фізичними компонентами (Wi-Fi модуль, GPIO порти для кнопки управління).
+* Network Layer: Відповідає за встановлення з'єднання з точкою доступу, формування HTTP-запитів та обробку відповідей сервера.
+* Application Layer: Реалізує бізнес-логіку клієнта: авторизацію, циклічну відправку координат.
+1.2 Структура модулів
+Програмна реалізація виконана у середовищі PlatformIO і складається з наступних функціональних блоків:
+* Модуль з'єднання: Використовує бібліотеки WiFi.h та HTTPClient.h для роботи з мережею та REST API.
+* Модуль аутентифікації: Виконує вхід в систему при старті пристрою, отримує та зберігає JWT-токен для підпису подальших запитів.
+* Модуль телеметрії: Формує JSON-пакети з геоданими та відправляє їх на сервер з заданим інтервалом.
+* Модуль керування: Відстежує стан апаратної кнопки для запуску сервісних функцій.
+
+
+2. Створити UML діаграму прецедентів для IoT клієнта:
+        Ця діаграма описує можливості взаємодії з IoT пристроєм.
+  
+
+Рисунок 1.1 - UML діаграма прецедентів IoT клієнта
+
+
+3. Розробити бізнес логіку та функції налаштування IoT клієнта:
+3.1 Основна бізнес-логіка (Робота з даними)
+Логіка роботи пристрою спрямована на безперервну передачу геоданих:
+* Зчитування: У головному циклі програми пристрій вибирає поточні координати з масиву маршруту.
+* Форматування: Дані упаковуються в JSON-об'єкт вигляду {"coordinates": {"lat": ..., "lon": ...}}.
+* Комунікація: Сформований пакет відправляється на сервер методом POST на маршрут /api/location.
+* Обробка помилок: Якщо сервер повертає помилку авторизації пристрій автоматично видаляє старий токен і намагається авторизуватися знову.
+3.2 Функції налаштування (Конфігурація та енергоспоживання)
+Реалізовано механізми керування станом пристрою:
+* Конфігурація мережі: Параметри Wi-Fi мережі та адреса сервера задаються у прошивці. При старті викликається функція connectWiFi(), яка забезпечує з'єднання.
+* Відновлення параметрів: Використовується бібліотека Preferences.h для доступу до NVS-пам'яті. Отриманий після входу токен зберігається у пам'яті. При перезавантаженні пристрій зчитує його і пропускає етап логіну.
+* Скидання: При натисканні фізичної кнопки (GPIO 15) викликається функція, що очищує область пам'яті з налаштуваннями та виконує програмне перезавантаження контроллера.
+
+
+4. Створити UML діаграму діяльності для IoT клієнта:
+        Діаграма відображає алгоритм роботи прошивки.
+  
+
+Рисунок 1.2 - UML діаграма діяльності IoT клієнта
+5. Створити програмну реалізацію бізнес логіки та функцій налаштування IoT клієнта:
+Нижче наведено повний код файлу, що реалізує всі описані вище функції.
+
+
+#include <Arduino.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <Preferences.h>
+
+
+// --- НАЛАШТУВАННЯ ---
+const char* ssid = "Wokwi-GUEST"; 
+const char* password = "";
+const char* serverUrl = "http://192.168.0.104:3000/api"; 
+
+
+String loginData = "{\"login\":\"courier1\",\"password\":\"123\"}";
+
+
+Preferences preferences;
+
+
+String token = "";
+// Маршрут
+float route[][2] = {
+  {49.9935, 36.2304}, {49.9942, 36.2310}, {49.9950, 36.2315},
+  {49.9958, 36.2321}, {49.9965, 36.2328}, {49.9972, 36.2334},
+  {49.9980, 36.2340}, {49.9988, 36.2345}, {49.9995, 36.2351},
+  {50.0003, 36.2356}
+};
+int routeLen = 10;
+int currentIdx = 0;
+
+
+#define BTN_PIN 15
+
+
+void connectWiFi() {
+  Serial.print("Connecting to WiFi");
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println(" Connected!");
+}
+
+
+void login() {
+  if(WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin(String(serverUrl) + "/auth/login");
+    http.addHeader("Content-Type", "application/json");
+    
+    Serial.println("Logging in...");
+    int code = http.POST(loginData);
+    
+    if (code == 200) {
+      String payload = http.getString();
+      int start = payload.indexOf("token") + 8; 
+      int end = payload.indexOf("\"", start);
+      token = payload.substring(start, end);
+      
+      Serial.println("Auth Success! Token received.");
+      
+      preferences.begin("my-app", false);
+      preferences.putString("token", token);
+      preferences.end();
+      Serial.println("[MEMORY] Token saved to Flash memory.");
+      
+    } else {
+      Serial.print("Login Failed: ");
+      Serial.println(code);
+    }
+    http.end();
+  }
+}
+
+
+void loadToken() {
+  preferences.begin("my-app", true);
+  token = preferences.getString("token", "");
+  preferences.end();
+  
+  if (token != "") {
+    Serial.println("[MEMORY] Token restored from Flash memory!");
+  } else {
+    Serial.println("[MEMORY] No saved token found.");
+  }
+}
+
+
+void factoryReset() {
+  Serial.println("\n--- FACTORY RESET STARTED ---");
+  
+  preferences.begin("my-app", false);
+  preferences.clear();
+  preferences.end();
+  
+  Serial.println("[MEMORY] All settings wiped.");
+  Serial.println("Rebooting system...");
+  delay(1000);
+  
+  ESP.restart();
+}
+
+
+void sendTelemetry() {
+  if (token == "") {
+    login();
+    if (token == "") return;
+  }
+  
+  HTTPClient http;
+  http.begin(String(serverUrl) + "/location");
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("Authorization", "Bearer " + token);
+  
+  String lat = String(route[currentIdx][0], 4);
+  String lon = String(route[currentIdx][1], 4);
+  String json = "{\"coordinates\": {\"lat\":" + lat + ",\"lon\":" + lon + "}}";
+  
+  Serial.print("Sending: ");
+  Serial.println(json);
+  
+  int code = http.POST(json);
+
+
+  if (code == 401) {
+    Serial.println("Token expired. Clearing memory...");
+    token = "";
+    preferences.begin("my-app", false);
+    preferences.clear();
+    preferences.end();
+  }
+  
+  Serial.print("Status: ");
+  Serial.println(code); 
+  http.end();
+
+
+  currentIdx = (currentIdx + 1) % routeLen;
+}
+
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(BTN_PIN, INPUT_PULLUP);
+  
+  connectWiFi();
+
+
+  loadToken();
+
+
+  if (token == "") {
+    login();
+  }
+}
+
+
+void loop() {
+  if (digitalRead(BTN_PIN) == LOW) {
+    factoryReset();
+  }
+  
+  sendTelemetry();
+  delay(5000); 
+}
