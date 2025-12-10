@@ -1,0 +1,263 @@
+Міністерство освіти і науки України
+Харківський національний університет радіоелектроніки
+
+
+
+
+
+
+Кафедра «Програмної інженерії»
+
+
+
+
+
+
+Дисципліна «Аналіз та рефакторинг коду»
+Лабораторна робота №5
+«РОЗГОРТАННЯ ПРОГРАМНОЇ СИСТЕМИ ТА ДЕМОНСТРАЦІЯ ЇЇ РОБОТИ»
+
+
+
+
+
+
+
+
+Виконав:                                                                          
+ст. гр. ПЗПІ-23-8                                                               
+Ярмак А.М.                                                                        
+ 
+
+
+
+Прийняв:
+Дашенков Д.С.
+
+
+
+
+
+
+Харків 2025
+________________
+Мета роботи:
+Навчитися розгортати програмну систему, перевіряти її функціональність, виконувати налаштування, а також демонструвати та документувати роботу системи.
+Тема роботи: 
+Програмна система для контролю роботи співробітників служби доставки їжі.
+Посилання на відеозапис: 
+https://www.youtube.com/watch?v=R0UNtWwsIsw
+
+
+Хід роботи
+
+
+1. Текстовий опис інженерних рішень:
+1.1 Детальний опис розгортання системи
+Розгортання програмної системи виконано за мікросервісним підходом у локальному середовищі. Система складається з трьох незалежних вузлів, які взаємодіють через мережеві протоколи.
+1. Серверна частина:
+* Середовище виконання: Node.js.
+* Запуск: Виконується командою node index.js.
+* Конфігурація: Сервер слухає порт 3000. У файлі конфігурації задано параметри підключення до БД .
+* Залежності: Встановлені через менеджер пакетів npm (express, mysql2, jsonwebtoken, bcryptjs).
+2. База даних:
+* СУБД: MariaDB.
+* Порт: Стандартний 3306.
+* Структура: Розгорнуто реляційну схему даних. Таблиці створено за допомогою DDL-скриптів. Таблиця location_logs налаштована для зберігання JSON-об'єктів координат.
+3. IoT Клієнт (ESP32 Emulation):
+* Середовище: Симулятор Wokwi, інтегрований у VS Code.
+* Зв'язок: Оскільки симулятор працює у браузерному середовищі, для доступу до локального сервера використано шлюз Wokwi IoT Gateway.
+* Адресація: У прошивці мікроконтролера прописана IP-адреса хоста локальної мережі, що дозволяє обійти обмеження ізоляції контейнера симулятора.
+1.2 Обґрунтування вибору технологій
+* Node.js (Server): Обрано через асинхронну модель I/O, що є критично важливим для IoT-систем, які обробляють велику кількість одночасних запитів телеметрії від датчиків. Також дозволяє використовувати єдину мову для роботи з JSON.
+* MariaDB (Database): Забезпечує надійність зберігання структурованих даних, підтримку зовнішніх ключів для зв'язку "Кур'єр - Логи" та високу швидкість запису. Сумісність з MySQL дозволяє використовувати стандартні інструменти адміністрування.
+* HTTP/REST (Protocol): Використання REST API поверх HTTP спрощує налагодження та інтеграцію. Формат JSON є нативним як для Node.js, так і легко парситься на C++, що зменшує накладні витрати на серіалізацію даних.
+
+
+2. Графічні ілюстрації
+2.1 Схема взаємодії компонентів
+Діаграма демонструє потік даних від емульованого пристрою через шлюз до сервера та бази даних (рисунок 1.1).
+  
+
+Рисунок 1.1 - Схема взаємодії компонентів програмної системи
+
+
+2.2 Діаграма структури даних (ER Diagram)
+Схема бази даних (рисунок 1.2).
+  
+
+Рисунок 1.2 - ER діаграма структури бази даних
+
+
+3. Фрагменти програмного коду
+3.1 Логіка бізнес-процесів серверної частини
+У цьому розділі наведено код, що відповідає за ключові процеси системи: авторизацію користувачів та обробку телеметричних даних.
+Цей контролер перевіряє пароль та генерує JWT-токен, без якого клієнт не зможе надсилати дані.
+async login(req, res) {
+        try {
+            const { login, password } = req.body;
+            const user = await userRepo.findByLogin(login);
+            
+            if (!user || user.password_hash !== password) {
+                return res.status(401).json({ message: "Невірний логін або пароль" });
+            }
+
+
+            const token = jwt.sign(
+                { id: user.id, role: user.role }, 
+                SECRET_KEY, 
+                { expiresIn: '24h' }
+            );
+
+
+            let userData = { id: user.id, login: user.login, role: user.role };
+            if (user.role === 'courier') {
+                const [courierRows] = await db.execute('SELECT * FROM couriers WHERE user_id = ?', [user.id]);
+                if (courierRows.length > 0) {
+                    userData.fullName = courierRows[0].full_name;
+                    userData.status = courierRows[0].status;
+                }
+            }
+
+
+            res.json({ token, user: userData });
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    }
+        Контролер приймає координати, валідує їх наявність та зберігає в історію.
+sendLocation = async (req, res) => {
+        try {
+            const courierId = req.user.id;
+            
+            let coordsData = req.body.coordinates || req.body;
+
+
+            const coordsString = JSON.stringify(coordsData);
+
+
+            const sql = 'INSERT INTO location_logs (courier_id, coordinates) VALUES (?, ?)';
+            
+            await db.execute(sql, [courierId, coordsString]);
+
+
+            console.log(`GPS збережено: ${coordsString}`);
+            res.status(200).json({ message: "Location saved" });
+
+
+        } catch (e) {
+            console.error("Помилка сервера:", e.message);
+            res.status(500).json({ error: e.message });
+        }
+    }
+3.2 Логіка адміністрування серверної частини
+Цей розділ демонструє код функцій для керування системою: створення замовлення, та створення бекапу бази даних.
+Цей контролер використовується для створення замовлення.
+create = async (req, res) => {
+        try {
+            let { clientAddress, coords } = req.body;
+            if (!coords && clientAddress) coords = await this._geocodeAddress(clientAddress);
+            if (!coords) return res.status(400).json({ error: "Адреса не знайдена" });
+            const id = await orderRepo.create(clientAddress, coords);
+            res.status(201).json({ id, message: "Замовлення створено", coords });
+        } catch (e) { res.status(500).json({ error: e.message }); }
+    }
+        Цей контролер використовується для створення бекапу бази даних.
+async createBackup(req, res) {
+        try {
+            const [users] = await db.execute('SELECT * FROM users');
+            const [couriers] = await db.execute('SELECT * FROM couriers');
+            const [orders] = await db.execute('SELECT * FROM orders');
+            const [routes] = await db.execute('SELECT * FROM routes');
+            const [logs] = await db.execute('SELECT * FROM location_logs');
+            
+            const backupData = {
+                timestamp: new Date(),
+                data: { users, couriers, orders, routes, location_logs: logs }
+            };
+
+
+            const fileName = `full_backup_${Date.now()}.json`;
+            const dir = path.join(__dirname, '../../backups');
+            
+            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+
+            fs.writeFileSync(path.join(dir, fileName), JSON.stringify(backupData, null, 2));
+
+
+            res.json({ message: "Бекап створено", file: fileName });
+        } catch (e) { res.status(500).json({ error: e.message }); }
+    }
+        3.3 Логіка налаштування IoT клієнта та взаємодії з сервером
+Програмна реалізація клієнта розділена на два функціональні блоки: керування конфігурацією та виконання бізнес-логіки.
+Цей фрагмент коду відповідає за збереження сесії в енергонезалежній пам'яті. Це дозволяє пристрою відновлювати роботу після перезавантаження без повторної авторизації.
+Preferences preferences; // Об'єкт для доступу до NVS пам'яті
+String token = "";
+
+
+// Функція відновлення сесії при запуску
+void loadToken() {
+  preferences.begin("my-app", true); // Відкрити в режимі "тільки читання"
+  token = preferences.getString("token", ""); // Зчитати токен
+  preferences.end();
+  
+  if (token != "") {
+    Serial.println("[MEMORY] Token restored from Flash memory!");
+  } else {
+    Serial.println("[MEMORY] No saved token found.");
+  }
+}
+
+
+// Функція скидання до заводських налаштувань
+void factoryReset() {
+  Serial.println("\n--- FACTORY RESET STARTED ---");
+  
+  preferences.begin("my-app", false); // Відкрити в режимі запису
+  preferences.clear(); // Очистити всі збережені дані
+  preferences.end();
+  
+  Serial.println("[MEMORY] All settings wiped. Rebooting system...");
+
+
+  delay(1000);
+  ESP.restart();
+}
+Цей фрагмент показує відповідає за циклічну відправку телеметричних даних. Функція формує JSON-пакет, додає токен авторизації у заголовок запиту та обробляє відповідь сервера. Якщо токен прострочений, виконується автоматичне очищення пам'яті.
+void sendTelemetry() {
+  // Якщо токена немає, пробуємо залогінитись
+  if (token == "") {
+    login();
+    if (token == "") return;
+  }
+  
+  HTTPClient http;
+  http.begin(String(serverUrl) + "/location");
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("Authorization", "Bearer " + token); // Bearer Auth
+  
+  String lat = String(route[currentIdx][0], 4);
+  String lon = String(route[currentIdx][1], 4);
+  String json = "{\"coordinates\": {\"lat\":" + lat + ",\"lon\":" + lon + "}}";
+  
+  Serial.print("Sending: "); Serial.println(json);
+  
+  int code = http.POST(json);
+
+
+  // Обробка помилки авторизації
+  if (code == 401) {
+    Serial.println("Token expired. Clearing memory...");
+    token = "";
+    preferences.begin("my-app", false);
+    preferences.clear(); // Видаляємо старий токен
+    preferences.end();
+  }
+  
+  Serial.print("Status: "); Serial.println(code); 
+  http.end();
+
+
+  currentIdx = (currentIdx + 1) % 10;
+}
